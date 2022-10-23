@@ -5,7 +5,8 @@ mod stats;
 use std::{
     collections::VecDeque,
     fs::Metadata,
-    path::PathBuf,
+    io::ErrorKind,
+    path::{Path, PathBuf},
     sync::{
         mpsc::{channel, Receiver, Sender},
         Arc,
@@ -81,7 +82,7 @@ enum SearchResult {
 }
 
 fn search_dir(
-    src: &PathBuf,
+    src: &Path,
     accumulator: &mut Accumulator,
     threads: usize,
     opts: Arc<Args>,
@@ -105,7 +106,7 @@ fn search_dir(
         thread_handles.push(handle);
     }
 
-    if let Err(_) = path_senders[0].send(src.clone()) {
+    if path_senders[0].send(src.to_path_buf()).is_err() {
         return Err(std::io::ErrorKind::Interrupted.into());
     }
 
@@ -201,7 +202,10 @@ fn copy_thread(
     path_receiver: Receiver<SearchResult>,
     opts: Arc<Args>,
 ) {
-    if let Ok(_) = request_sender.send(Ok(ThreadReady(thread_id, Accumulator::default()))) {
+    if request_sender
+        .send(Ok(ThreadReady(thread_id, Accumulator::default())))
+        .is_ok()
+    {
         for result in path_receiver {
             let accumulator = match result {
                 SearchResult::File(file_result) => {
@@ -215,26 +219,34 @@ fn copy_thread(
                     }
                     let dir = new_path.parent().unwrap();
                     if !dir.exists() {
-                        match std::fs::DirBuilder::new().recursive(true).create(dir) {
-                            Err(err) => {
-                                let _ = request_sender
-                                    .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
-                            }
-                            Ok(_) => {}
+                        if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir) {
+                            let _ = request_sender
+                                .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
+                            return;
                         }
                     }
-                    std::fs::copy(file_result.path, new_path).unwrap();
+                    match std::fs::copy(&file_result.path, &new_path) {
+                        Ok(_) => {}
+                        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+                            let _ = request_sender
+                                .send(Err(CopyError::AccessDenied((file_result.path, new_path))));
+                            return;
+                        }
+                        Err(err) => {
+                            let _ =
+                                request_sender.send(Err(CopyError::Other(err.kind().to_string())));
+                            return;
+                        }
+                    }
                     Accumulator::copies(1, file_result.metadata.len())
                 }
                 SearchResult::Directory(dir_result) => {
                     let relative = dir_result.path.strip_prefix(&copy_base).unwrap();
                     let new_path = dest_base.join(relative);
-                    match std::fs::DirBuilder::new().recursive(true).create(new_path) {
-                        Err(err) => {
-                            let _ = request_sender
-                                .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
-                        }
-                        Ok(_) => {}
+                    if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(new_path) {
+                        let _ = request_sender
+                            .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
+                        return;
                     }
                     Accumulator::default()
                 }

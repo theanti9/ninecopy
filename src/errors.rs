@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
-
 pub enum CopyError {
     NotFaster,
     SourceNotFound(PathBuf),
     CannotOverwrite(PathBuf),
     DirectoryCreationFailed(String),
+    AccessDenied((PathBuf, PathBuf)),
+    Other(String),
 }
 
 impl std::fmt::Debug for CopyError {
@@ -25,6 +26,12 @@ impl std::fmt::Debug for CopyError {
                 "Could not create destination directory: {}",
                 error
             )),
+            Self::AccessDenied((src_path, dst_path)) => f.write_fmt(format_args!(
+                "Access denied copying {} to {}",
+                src_path.display(),
+                dst_path.display()
+            )),
+            Self::Other(msg) => f.write_fmt(format_args!("Error: {}", msg)),
         }
     }
 }
