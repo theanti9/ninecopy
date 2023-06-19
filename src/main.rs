@@ -33,7 +33,9 @@ fn main() -> Result<(), CopyError> {
     }
 
     if cli.skip && cli.overwrite {
-        return Err(CopyError::Other("Cannot have both skip and overwrite set.".to_string()));
+        return Err(CopyError::Other(
+            "Cannot have both skip and overwrite set.".to_string(),
+        ));
     }
 
     let opts = Arc::new(cli);
@@ -217,7 +219,10 @@ fn copy_thread(
                     let new_path = dest_base.join(relative);
                     let mut skipped: bool = false;
                     if !file_result.path.exists() {
-                        println!("File found during scan no longer exists: {:?}", file_result.path.as_os_str());
+                        println!(
+                            "File found during scan no longer exists: {:?}",
+                            file_result.path.as_os_str()
+                        );
                         skipped = true;
                     }
                     if new_path.exists() {
@@ -234,7 +239,8 @@ fn copy_thread(
                     if !skipped {
                         let dir = new_path.parent().unwrap();
                         if !dir.exists() {
-                            if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir) {
+                            if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir)
+                            {
                                 let _ = request_sender
                                     .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
                                 return;
@@ -243,13 +249,15 @@ fn copy_thread(
                         match std::fs::copy(&file_result.path, &new_path) {
                             Ok(_) => {}
                             Err(err) if err.kind() == ErrorKind::PermissionDenied => {
-                                let _ = request_sender
-                                    .send(Err(CopyError::AccessDenied((file_result.path, new_path))));
+                                let _ = request_sender.send(Err(CopyError::AccessDenied((
+                                    file_result.path,
+                                    new_path,
+                                ))));
                                 return;
                             }
                             Err(err) => {
-                                let _ =
-                                    request_sender.send(Err(CopyError::Other(err.kind().to_string())));
+                                let _ = request_sender
+                                    .send(Err(CopyError::Other(err.kind().to_string())));
                                 return;
                             }
                         }
@@ -336,15 +344,19 @@ fn copy_queue(
                 last_print = now;
                 println!(
                     "Files: {} / {} ({:.2}%). Bytes: {} / {} ({:.2}%)",
-                    accumulator.file_count_copied,
+                    accumulator.file_count_copied + accumulator.file_count_skipped,
                     accumulator.file_count_found,
-                    accumulator.file_count_copied as f64 / accumulator.file_count_found as f64
+                    (accumulator.file_count_copied + accumulator.file_count_skipped) as f64
+                        / accumulator.file_count_found as f64
                         * 100.0,
-                    Byte::from_bytes(accumulator.byte_count_copied as u128)
-                        .get_appropriate_unit(false),
+                    Byte::from_bytes(
+                        (accumulator.byte_count_copied + accumulator.byte_count_skipped) as u128
+                    )
+                    .get_appropriate_unit(false),
                     Byte::from_bytes(accumulator.byte_count_found as u128)
                         .get_appropriate_unit(false),
-                    accumulator.byte_count_copied as f64 / accumulator.byte_count_found as f64
+                    (accumulator.byte_count_copied + accumulator.byte_count_skipped) as f64
+                        / accumulator.byte_count_found as f64
                         * 100.0
                 )
             }

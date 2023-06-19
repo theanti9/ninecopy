@@ -29,6 +29,7 @@ impl Accumulator {
         }
     }
 
+    #[inline(always)]
     pub fn skips(files: u64, bytes: u64) -> Self {
         Self { file_count_skipped: files, byte_count_skipped: bytes, ..Default::default() }
     }
