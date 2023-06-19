@@ -23,8 +23,15 @@ pub struct Args {
     /// Overwrite existing files.
     ///
     /// If this is false, the process will exit if existing files at the destination are encountered.
+    /// Mutually exclusive with `skip`.
     #[arg(short, long)]
     pub overwrite: bool,
+
+    /// Skip files that already exist at the destination.
+    /// 
+    /// Mutually exlusive with `overwrite`.
+    #[arg(short, long)]
+    pub skip: bool,
 
     /// Periodically log progress.
     #[arg(short, long)]

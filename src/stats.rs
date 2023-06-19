@@ -6,6 +6,8 @@ pub struct Accumulator {
     pub byte_count_found: u64,
     pub file_count_copied: u64,
     pub byte_count_copied: u64,
+    pub file_count_skipped: u64,
+    pub byte_count_skipped: u64,
 }
 
 impl Accumulator {
@@ -26,6 +28,10 @@ impl Accumulator {
             ..Default::default()
         }
     }
+
+    pub fn skips(files: u64, bytes: u64) -> Self {
+        Self { file_count_skipped: files, byte_count_skipped: bytes, ..Default::default() }
+    }
 }
 
 impl Add for Accumulator {
@@ -37,6 +43,8 @@ impl Add for Accumulator {
             byte_count_found: self.byte_count_found + rhs.byte_count_found,
             file_count_copied: self.file_count_copied + rhs.file_count_copied,
             byte_count_copied: self.byte_count_copied + rhs.byte_count_copied,
+            file_count_skipped: self.file_count_skipped + rhs.file_count_skipped,
+            byte_count_skipped: self.byte_count_skipped + rhs.byte_count_skipped,
         }
     }
 }
@@ -48,5 +56,7 @@ impl AddAssign for Accumulator {
         self.byte_count_found += rhs.byte_count_found;
         self.file_count_copied += rhs.file_count_copied;
         self.byte_count_copied += rhs.byte_count_copied;
+        self.file_count_skipped += rhs.file_count_skipped;
+        self.byte_count_skipped += rhs.byte_count_skipped;
     }
 }

@@ -32,6 +32,10 @@ fn main() -> Result<(), CopyError> {
         return Err(CopyError::NotFaster);
     }
 
+    if cli.skip && cli.overwrite {
+        return Err(CopyError::Other("Cannot have both skip and overwrite set.".to_string()));
+    }
+
     let opts = Arc::new(cli);
 
     let threads = opts.threads.unwrap_or_else(default_thread_count);
@@ -211,34 +215,48 @@ fn copy_thread(
                 SearchResult::File(file_result) => {
                     let relative = file_result.path.strip_prefix(&copy_base).unwrap();
                     let new_path = dest_base.join(relative);
-                    if new_path.exists() && !opts.overwrite {
-                        // If many files exist at the destination, all of the threads will hit this condition, but the first one to hit it will
-                        // succeed with this send. Ignore the result and just kill the thread either way.
-                        let _ = request_sender.send(Err(CopyError::CannotOverwrite(new_path)));
-                        return;
+                    let mut skipped: bool = false;
+                    if !file_result.path.exists() {
+                        println!("File found during scan no longer exists: {:?}", file_result.path.as_os_str());
+                        skipped = true;
                     }
-                    let dir = new_path.parent().unwrap();
-                    if !dir.exists() {
-                        if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir) {
-                            let _ = request_sender
-                                .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
+                    if new_path.exists() {
+                        if !opts.skip && !opts.overwrite {
+                            // If many files exist at the destination, all of the threads will hit this condition, but the first one to hit it will
+                            // succeed with this send. Ignore the result and just kill the thread either way.
+                            let _ = request_sender.send(Err(CopyError::CannotOverwrite(new_path)));
                             return;
                         }
-                    }
-                    match std::fs::copy(&file_result.path, &new_path) {
-                        Ok(_) => {}
-                        Err(err) if err.kind() == ErrorKind::PermissionDenied => {
-                            let _ = request_sender
-                                .send(Err(CopyError::AccessDenied((file_result.path, new_path))));
-                            return;
-                        }
-                        Err(err) => {
-                            let _ =
-                                request_sender.send(Err(CopyError::Other(err.kind().to_string())));
-                            return;
+                        if opts.skip {
+                            skipped = true;
                         }
                     }
-                    Accumulator::copies(1, file_result.metadata.len())
+                    if !skipped {
+                        let dir = new_path.parent().unwrap();
+                        if !dir.exists() {
+                            if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir) {
+                                let _ = request_sender
+                                    .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
+                                return;
+                            }
+                        }
+                        match std::fs::copy(&file_result.path, &new_path) {
+                            Ok(_) => {}
+                            Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+                                let _ = request_sender
+                                    .send(Err(CopyError::AccessDenied((file_result.path, new_path))));
+                                return;
+                            }
+                            Err(err) => {
+                                let _ =
+                                    request_sender.send(Err(CopyError::Other(err.kind().to_string())));
+                                return;
+                            }
+                        }
+                        Accumulator::copies(1, file_result.metadata.len())
+                    } else {
+                        Accumulator::skips(1, file_result.metadata.len())
+                    }
                 }
                 SearchResult::Directory(dir_result) => {
                     let relative = dir_result.path.strip_prefix(&copy_base).unwrap();
@@ -339,12 +357,14 @@ fn copy_queue(
 
     let seconds = Instant::now().duration_since(copy_start).as_secs_f64();
     println!(
-        "Finished copy of {} files ({}) in {:.2} seconds, (~{}/s)",
+        "Finished copy of {} files ({}) in {:.2} seconds, (~{}/s), {} files ({}) skipped.",
         accumulator.file_count_copied,
         Byte::from_bytes(accumulator.byte_count_copied as u128).get_appropriate_unit(false),
         seconds,
         Byte::from_bytes((accumulator.byte_count_copied as f64 / seconds) as u128)
-            .get_appropriate_unit(false)
+            .get_appropriate_unit(false),
+        accumulator.file_count_skipped,
+        Byte::from_bytes(accumulator.byte_count_skipped as u128).get_appropriate_unit(false),
     );
 
     for sender in path_senders {
