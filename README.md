@@ -31,15 +31,36 @@ Options:
 
           If this is false, the process will exit if existing files at the destination are encountered.
 
+ -s, --skip
+          Skip files that already exist at the destination.
+          
+          Mutually exlusive with `overwrite`.
+
   -p, --progress
           Periodically log progress
 
   -t, --threads <THREADS>
           The number of threads to use for search and copy.
-
+          
           Defaults to one per core.
+          
+          Transfers with mostly large files may benefit from thread counts higher than one per core, depe
+nding on the core count and disk throughput.
 
-          Transfers with mostly large files may benefit from thread counts higher than one per core, depending on the core count and disk throughput.
+      --copy-if-newer
+          Copy files that already exist at the destination if the last modified time of the source file i
+s more current.
+          
+          Must be used in conjunction with `skip`
+
+      --copy-if-larger
+          Copy files that already exist at the destination if the size of the source file is larger than 
+the destination file.
+          
+          Must be used in conjunction with `skip`
+
+  -c, --continue-on-error
+          Skip files that encounter an error and continue copying instead of exiting
 
   -h, --help
           Print help information (use `-h` for a summary)

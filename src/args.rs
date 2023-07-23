@@ -49,14 +49,14 @@ pub struct Args {
     /// file is more current.
     ///
     /// Must be used in conjunction with `skip`
-    #[arg(short, long)]
+    #[arg(long)]
     pub copy_if_newer: bool,
 
     /// Copy files that already exist at the destination if the size of the source file is larger
     /// than the destination file.
     ///
     /// Must be used in conjunction with `skip`
-    #[arg(short, long)]
+    #[arg(long)]
     pub copy_if_larger: bool,
 
     /// Skip files that encounter an error and continue copying instead of exiting.
