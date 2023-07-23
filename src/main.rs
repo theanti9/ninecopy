@@ -38,6 +38,12 @@ fn main() -> Result<(), CopyError> {
         ));
     }
 
+    if (cli.copy_if_newer || cli.copy_if_larger) && !cli.skip {
+        return Err(CopyError::Other(
+            "skip must be specified to use copy_if_newer or copy_if_larger.".to_string(),
+        ));
+    }
+
     let opts = Arc::new(cli);
 
     let threads = opts.threads.unwrap_or_else(default_thread_count);
@@ -227,13 +233,72 @@ fn copy_thread(
                     }
                     if new_path.exists() {
                         if !opts.skip && !opts.overwrite {
+                            if opts.continue_on_error {
+                                println!(
+                                    "File already exists at destination: {:?}",
+                                    file_result.path.as_os_str()
+                                );
+                                let _ = request_sender
+                                    .send(Ok(ThreadReady(thread_id, Accumulator::skips(1, 0))));
+                                continue;
+                            }
                             // If many files exist at the destination, all of the threads will hit this condition, but the first one to hit it will
                             // succeed with this send. Ignore the result and just kill the thread either way.
                             let _ = request_sender.send(Err(CopyError::CannotOverwrite(new_path)));
                             return;
                         }
                         if opts.skip {
-                            skipped = true;
+                            if opts.copy_if_larger || opts.copy_if_newer {
+                                if let (Ok(new_meta), Ok(old_meta)) = (
+                                    std::fs::metadata(new_path.clone()),
+                                    std::fs::metadata(file_result.path.clone()),
+                                ) {
+                                    if let (Ok(new_modified), Ok(old_modified)) =
+                                        (new_meta.modified(), old_meta.modified())
+                                    {
+                                        skipped = !((new_meta.len() < old_meta.len()
+                                            && opts.copy_if_larger)
+                                            || (new_modified < old_modified && opts.copy_if_newer))
+                                    } else {
+                                        if opts.continue_on_error {
+                                            println!(
+                                                "copy-if-newer specified but unable to read modified time: {:?}",
+                                                file_result.path.as_os_str()
+                                            );
+                                            let _ = request_sender.send(Ok(ThreadReady(
+                                                thread_id,
+                                                Accumulator::skips(1, 0),
+                                            )));
+                                            continue;
+                                        }
+                                        let _ =
+                                            request_sender.send(Err(CopyError::Other(format!(
+                                                "Unable to read path modified date: {}",
+                                                new_path.as_path().to_str().unwrap()
+                                            ))));
+                                        return;
+                                    }
+                                } else {
+                                    if opts.continue_on_error {
+                                        println!(
+                                            "copy-if-newer or copy-if-larger specified but unable to read file size: {:?}",
+                                            file_result.path.as_os_str()
+                                        );
+                                        let _ = request_sender.send(Ok(ThreadReady(
+                                            thread_id,
+                                            Accumulator::skips(1, 0),
+                                        )));
+                                        continue;
+                                    }
+                                    let _ = request_sender.send(Err(CopyError::Other(format!(
+                                        "Unable to read path metadata: {}",
+                                        new_path.as_path().to_str().unwrap()
+                                    ))));
+                                    return;
+                                }
+                            } else {
+                                skipped = true;
+                            }
                         }
                     }
                     if !skipped {
@@ -241,6 +306,15 @@ fn copy_thread(
                         if !dir.exists() {
                             if let Err(err) = std::fs::DirBuilder::new().recursive(true).create(dir)
                             {
+                                if opts.continue_on_error {
+                                    println!(
+                                        "Unable to create path for file: {:?}",
+                                        file_result.path.as_os_str()
+                                    );
+                                    let _ = request_sender
+                                        .send(Ok(ThreadReady(thread_id, Accumulator::skips(1, 0))));
+                                    continue;
+                                }
                                 let _ = request_sender
                                     .send(Err(CopyError::DirectoryCreationFailed(err.to_string())));
                                 return;
@@ -249,6 +323,15 @@ fn copy_thread(
                         match std::fs::copy(&file_result.path, &new_path) {
                             Ok(_) => {}
                             Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+                                if opts.continue_on_error {
+                                    println!(
+                                        "Permission Denied copying file: {:?}",
+                                        file_result.path.as_os_str()
+                                    );
+                                    let _ = request_sender
+                                        .send(Ok(ThreadReady(thread_id, Accumulator::skips(1, 0))));
+                                    continue;
+                                }
                                 let _ = request_sender.send(Err(CopyError::AccessDenied((
                                     file_result.path,
                                     new_path,
@@ -256,6 +339,16 @@ fn copy_thread(
                                 return;
                             }
                             Err(err) => {
+                                if opts.continue_on_error {
+                                    println!(
+                                        "Error copying file: {:?}: {}",
+                                        file_result.path.as_os_str(),
+                                        err.to_string()
+                                    );
+                                    let _ = request_sender
+                                        .send(Ok(ThreadReady(thread_id, Accumulator::skips(1, 0))));
+                                    continue;
+                                }
                                 let _ = request_sender
                                     .send(Err(CopyError::Other(err.kind().to_string())));
                                 return;

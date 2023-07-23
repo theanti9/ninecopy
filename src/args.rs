@@ -28,7 +28,7 @@ pub struct Args {
     pub overwrite: bool,
 
     /// Skip files that already exist at the destination.
-    /// 
+    ///
     /// Mutually exlusive with `overwrite`.
     #[arg(short, long)]
     pub skip: bool,
@@ -44,4 +44,22 @@ pub struct Args {
     /// Transfers with mostly large files may benefit from thread counts higher than one per core, depending on the core count and disk throughput.
     #[arg(short, long)]
     pub threads: Option<usize>,
+
+    /// Copy files that already exist at the destination if the last modified time of the source
+    /// file is more current.
+    ///
+    /// Must be used in conjunction with `skip`
+    #[arg(short, long)]
+    pub copy_if_newer: bool,
+
+    /// Copy files that already exist at the destination if the size of the source file is larger
+    /// than the destination file.
+    ///
+    /// Must be used in conjunction with `skip`
+    #[arg(short, long)]
+    pub copy_if_larger: bool,
+
+    /// Skip files that encounter an error and continue copying instead of exiting.
+    #[arg(short, long)]
+    pub continue_on_error: bool,
 }
